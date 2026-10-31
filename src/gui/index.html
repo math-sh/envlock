@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>envlock</title>
+<link rel="icon" href="icon.svg">
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #0f1115;
+    --card: #171a21;
+    --line: #272b35;
+    --fg: #e7e9ee;
+    --muted: #9aa1ae;
+    --accent: #6ea8fe;
+    --ok: #4ade80;
+    --bad: #f87171;
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f4f5f7; --card:#fff; --line:#dfe2e8; --fg:#1b1e24; --muted:#636b78; --accent:#1b63d8; --ok:#15803d; --bad:#c02626; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px;
+    background: var(--bg); color: var(--fg);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { width: 100%; max-width: 440px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; }
+  h1 { margin: 0 0 2px; font-size: 17px; letter-spacing: -0.01em; }
+  .sub { margin: 0 0 18px; color: var(--muted); font-size: 13px; }
+  .file { display: flex; gap: 10px; align-items: baseline; padding: 10px 12px; margin-bottom: 16px;
+          background: color-mix(in srgb, var(--accent) 9%, transparent);
+          border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent); border-radius: 8px; }
+  .file b { font-weight: 600; word-break: break-all; font-size: 14px; }
+  .file span { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin: 14px 0 5px;
+          text-transform: uppercase; letter-spacing: 0.04em; }
+  .row { display: flex; gap: 6px; }
+  input[type=password], input[type=text] {
+    flex: 1; min-width: 0; padding: 9px 11px; font: inherit; color: var(--fg);
+    background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+  }
+  input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .peek { padding: 0 11px; background: none; border: 1px solid var(--line); border-radius: 8px;
+          color: var(--muted); cursor: pointer; font-size: 13px; }
+  button.go { width: 100%; margin-top: 20px; padding: 11px; font: inherit; font-weight: 600;
+              color: #fff; background: var(--accent); border: 0; border-radius: 8px; cursor: pointer; }
+  button.go:disabled { opacity: 0.55; cursor: progress; }
+  .hint { margin: 14px 0 0; font-size: 12px; color: var(--muted); }
+  .drop { padding: 28px 16px; text-align: center; color: var(--muted); font-size: 13px;
+          border: 1.5px dashed var(--line); border-radius: 8px; margin-bottom: 16px; cursor: pointer; }
+  .drop.over { border-color: var(--accent); color: var(--fg); }
+  .msg { margin-top: 16px; padding: 10px 12px; border-radius: 8px; font-size: 13px; display: none; word-break: break-all; }
+  .msg.show { display: block; }
+  .msg.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+  .msg.bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
+  .foot { margin: 14px 2px 0; font-size: 11px; color: var(--muted); text-align: center; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <div class="card">
+    <h1 id="title">envlock</h1>
+    <p class="sub" id="subtitle">tudo acontece nesta máquina</p>
+
+    <div class="file" id="fileBox" hidden>
+      <b id="fileName"></b><span id="fileLabel"></span>
+    </div>
+
+    <div class="drop" id="drop" hidden>
+      arraste um arquivo aqui<br>ou clique para escolher
+      <input type="file" id="picker" hidden>
+    </div>
+
+    <form id="form" hidden>
+      <label for="password">Senha</label>
+      <div class="row">
+        <input type="password" id="password" autocomplete="off" spellcheck="false" required>
+        <button type="button" class="peek" data-for="password" aria-label="mostrar senha">ver</button>
+      </div>
+
+      <label for="pepper">Pepper</label>
+      <div class="row">
+        <input type="password" id="pepper" autocomplete="off" spellcheck="false" required>
+        <button type="button" class="peek" data-for="pepper" aria-label="mostrar pepper">ver</button>
+      </div>
+
+      <div id="labelWrap" hidden>
+        <label for="label">Rótulo <span style="text-transform:none">(opcional, fica visível a quem receber)</span></label>
+        <input type="text" id="label" maxlength="128" autocomplete="off" placeholder="ex: prod-api">
+      </div>
+
+      <button type="submit" class="go" id="go">Descriptografar</button>
+      <p class="hint" id="hint"></p>
+    </form>
+
+    <div class="msg" id="msg" role="status" aria-live="polite"></div>
+  </div>
+  <p class="foot">servidor local 127.0.0.1 · nenhum dado sai da máquina</p>
+</main>
+
+<script>
+const boot = __ENVLOCK_BOOTSTRAP__;
+const el = (id) => document.getElementById(id);
+const form = el('form');
+const msg = el('msg');
+
+// Estado: ou um arquivo alvo que o servidor já conhece ('target'),
+// ou um arquivo arrastado, cujo conteúdo vai e volta pelo navegador ('inline').
+let state = { source: null, mode: 'lock', name: '', bytes: null, force: false };
+
+function show(kind, text) {
+  msg.textContent = text;
+  msg.className = 'msg show ' + kind;
+}
+
+function render() {
+  const unlocking = state.mode === 'unlock';
+  el('title').textContent = unlocking ? 'Descriptografar arquivo' : 'Criptografar arquivo';
+  el('subtitle').textContent = unlocking
+    ? 'digite a senha e o pepper combinados com quem enviou'
+    : 'escolha a senha e o pepper que o destinatário vai precisar saber';
+  el('go').textContent = unlocking ? 'Descriptografar' : 'Criptografar';
+  el('labelWrap').hidden = unlocking;
+  el('hint').textContent = state.source === 'inline' && state.name
+    ? 'o resultado será baixado pelo navegador'
+    : unlocking ? 'o arquivo original será gravado na mesma pasta' : '';
+  form.hidden = !state.source;
+}
+
+function setTarget(target) {
+  state.source = 'target';
+  state.mode = target.mode;
+  state.name = target.name;
+  el('fileBox').hidden = false;
+  el('fileName').textContent = target.name;
+  el('fileLabel').textContent = target.label ? 'rótulo: ' + target.label : '';
+  if (target.error) show('bad', target.error);
+  render();
+}
+
+function toBase64(bytes) {
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+function fromBase64(text) {
+  const binary = atob(text);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+async function useFile(file) {
+  state.source = 'inline';
+  state.name = file.name;
+  state.mode = file.name.toLowerCase().endsWith('.envlock') ? 'unlock' : 'lock';
+  state.bytes = new Uint8Array(await file.arrayBuffer());
+  el('fileBox').hidden = false;
+  el('fileName').textContent = file.name;
+  el('fileLabel').textContent = (state.bytes.length / 1024).toFixed(1) + ' KiB';
+  msg.className = 'msg';
+  render();
+}
+
+for (const button of document.querySelectorAll('.peek')) {
+  button.addEventListener('click', () => {
+    const input = el(button.dataset.for);
+    input.type = input.type === 'password' ? 'text' : 'password';
+    button.textContent = input.type === 'password' ? 'ver' : 'ocultar';
+  });
+}
+
+const drop = el('drop');
+const picker = el('picker');
+drop.addEventListener('click', () => picker.click());
+picker.addEventListener('change', () => picker.files[0] && useFile(picker.files[0]));
+drop.addEventListener('dragover', (event) => { event.preventDefault(); drop.classList.add('over'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+drop.addEventListener('drop', (event) => {
+  event.preventDefault();
+  drop.classList.remove('over');
+  const file = event.dataTransfer.files[0];
+  if (file) useFile(file);
+});
+
+form.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  el('go').disabled = true;
+  show('ok', 'derivando a chave, isso leva 1 ou 2 segundos…');
+
+  const body = {
+    password: el('password').value,
+    pepper: el('pepper').value,
+    source: state.source,
+    force: state.force,
+  };
+  if (state.mode === 'lock' && el('label').value) body.label = el('label').value;
+  if (state.source === 'inline') {
+    body.name = state.name;
+    body.content = toBase64(state.bytes);
+  }
+
+  try {
+    const response = await fetch('/api/' + state.mode, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-envlock-token': boot.token },
+      body: JSON.stringify(body),
+    });
+    const result = await response.json();
+
+    if (!result.ok) {
+      if (result.code === 'EEXIST' && !state.force) {
+        state.force = confirm(result.message + '\n\nSobrescrever?');
+        if (state.force) { el('go').disabled = false; form.requestSubmit(); return; }
+      }
+      show('bad', result.message);
+      return;
+    }
+
+    if (result.delivery === 'download') {
+      const url = URL.createObjectURL(new Blob([fromBase64(result.content)], { type: 'application/octet-stream' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = result.name;
+      link.click();
+      URL.revokeObjectURL(url);
+      show('ok', 'pronto: ' + result.name + ' foi baixado');
+    } else {
+      show('ok', 'pronto: ' + result.written + '\npode fechar esta aba');
+    }
+    el('password').value = '';
+    el('pepper').value = '';
+    state.force = false; // a autorização de sobrescrever valia só para esta operação
+  } catch (error) {
+    show('bad', 'falha ao falar com o processo local: ' + error.message);
+  } finally {
+    el('go').disabled = false;
+  }
+});
+
+if (boot.target) {
+  setTarget(boot.target);
+} else {
+  drop.hidden = false;
+  render();
+}
+el('password').focus();
+</script>
+</body>
+</html>

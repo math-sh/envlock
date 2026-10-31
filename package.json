@@ -1,0 +1,32 @@
+{
+  "name": "envlock",
+  "version": "1.0.0",
+  "description": "Criptografia local de arquivos (.env e afins) com senha + pepper. Nada sai da sua máquina.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "envlock": "bin/envlock.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "assets/",
+    "README.md"
+  ],
+  "keywords": [
+    "encryption",
+    "aes-256-gcm",
+    "scrypt",
+    "dotenv",
+    "env",
+    "secrets",
+    "offline",
+    "cli"
+  ]
+}
